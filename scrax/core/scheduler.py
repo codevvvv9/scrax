@@ -1,6 +1,5 @@
-import asyncio
-from asyncio import PriorityQueue, TimeoutError
 from typing import Optional
+from scrax.utils.pqueue import SpiderPriorityQueue
 
 class Scheduler:
     """
@@ -9,14 +8,14 @@ class Scheduler:
     """
 
     def __init__(self):
-        self.spider_queue: Optional[PriorityQueue] = None
+        self.spider_queue: Optional[SpiderPriorityQueue] = None
 
     def open(self):
         """
         打开调度器
         :return:
         """
-        self.spider_queue = PriorityQueue()
+        self.spider_queue = SpiderPriorityQueue()
 
 
     async def next_request(self):
@@ -31,11 +30,13 @@ class Scheduler:
         # return request
 
         # Good: 防止卡住，正确使用协程的超时方法
-        future_item = self.spider_queue.get()
-        try:
-            request = await asyncio.wait_for(future_item, timeout=0.1)
-        except TimeoutError:
-            return None
+        # future_item = self.spider_queue.get()
+        # try:
+        #     request = await asyncio.wait_for(future_item, timeout=0.1)
+        # except TimeoutError:
+        #     return None
+        # return request
+        request = await self.spider_queue.get()
         return request
 
     async def enqueue_request(self, request):
