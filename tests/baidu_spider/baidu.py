@@ -1,0 +1,12 @@
+from scrax.spider.spider_base import SpiderBase
+
+
+class BaiduSpider(SpiderBase):
+    # start_url = 'https://www.baidu.com'
+    # 会有多个 URL 的
+    start_urls = ['https://www.baidu.com', 'https://www.qq.com']
+
+    def start_requests(self):
+        # 业务类不需要做具体的事情，只暴露下载的 URL 即可
+        return self.start_urls
+
