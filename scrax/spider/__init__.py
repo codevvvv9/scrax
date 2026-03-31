@@ -1,0 +1,1 @@
+from .spider_base import SpiderBase # 使用.代表相对目录，不然就得写绝对路径

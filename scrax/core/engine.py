@@ -1,5 +1,5 @@
 from scrax.core.downloader import Downloader
-from typing import Optional, Generator
+from typing import Optional, Generator, Iterable
 
 from scrax.core.scheduler import Scheduler
 from scrax.spider.spider_base import SpiderBase
@@ -10,7 +10,7 @@ class Engine:
         # 通过类型注解 各种变量类型声明，延迟初始化
         self.downloader: Optional[Downloader] = None
         # 2. 初始化请求地址
-        self.request_urls: Optional[Generator] = None
+        self.requests: Optional[Iterable[Generator]] = None
         # 3. 初始化调度器
         self.scheduler: Optional[Scheduler] = None
 
@@ -28,7 +28,7 @@ class Engine:
         self.downloader = Downloader()
         # 1. 获取请求地址
         # 处理成迭代器，防止有的子类重写了start_requests，返回值不是生成器了
-        self.request_urls = iter(spider.start_requests())
+        self.requests = iter(spider.start_requests())
         # 2. 去执行爬虫
         await self.crawl()
 
@@ -45,11 +45,10 @@ class Engine:
             else:
                 try:
                     # 挨个去请求地址,
-                    if self.request_urls:
-                        request_url = next(self.request_urls)
+                    if self.requests:
+                        request = next(self.requests)
                     else:
                         break
-                    # print(f'请求地址是{request_url}')
                     # Bad: 直接处理请求
                     # self.downloader.download(url=request_url)
                     # Good: 通过调度器来处理请求，前去入队
@@ -59,13 +58,13 @@ class Engine:
                     # Bad：遍历完报错，就 break 不是显示退出
                     # break
                     # Good：显式退出，再次引发next(None)报错，下一个 except 处理 break
-                    self.request_urls = None
+                    self.requests = None
                 # except Exception: # 可以不写，在上面的 if else中处理
                 #     break
                 else:
                     # 入队操作
                     # 如果到这里没有异常，就说明这个获取的请求该入队了
-                    await self.enqueue_request(request_url)
+                    await self.enqueue_request(request)
 
 
     async def enqueue_request(self, request):
