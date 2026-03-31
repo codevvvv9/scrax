@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 from scrax.http import Request
 import requests
@@ -6,6 +7,11 @@ import requests
 class Downloader:
     def __init__(self):
         pass # 暂时不知道初始化什么
+
+
+    async def fetch(self, request: Request):
+        """返回响应内容"""
+        return await self.download(request)
 
     async def download(self, request: Request):
 
@@ -18,5 +24,5 @@ class Downloader:
         # response = requests.get(request.url)
         # print(response)
         # 假数据模拟
-        await asyncio.sleep(1)
-        print('result 了')
+        await asyncio.sleep(random.randint(1, 2))
+        return 'result'

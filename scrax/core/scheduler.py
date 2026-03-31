@@ -1,4 +1,6 @@
 from typing import Optional
+
+from scrax import Request
 from scrax.utils.pqueue import SpiderPriorityQueue
 
 class Scheduler:
@@ -8,7 +10,7 @@ class Scheduler:
     """
 
     def __init__(self):
-        self.spider_queue: Optional[SpiderPriorityQueue] = None
+        self.spider_queue: Optional[SpiderPriorityQueue[Request]] = None
 
     def open(self):
         """
@@ -18,7 +20,7 @@ class Scheduler:
         self.spider_queue = SpiderPriorityQueue()
 
 
-    async def next_request(self):
+    async def next_request(self) -> Optional[Request]:
         """
         调度下一个请求
         :return: 下一个请求

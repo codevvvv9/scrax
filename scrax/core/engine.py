@@ -1,8 +1,13 @@
-from scrax.core.downloader import Downloader
-from typing import Optional, Generator, Iterable
+import asyncio
 
+from scrax import Request
+from scrax.core.downloader import Downloader
+from typing import Optional, Generator, Iterable, Any
+from collections.abc import Callable, AsyncIterable
+from inspect import iscoroutine
 from scrax.core.scheduler import Scheduler
 from scrax.spider.spider_base import SpiderBase
+from scrax.utils.tools import transform
 
 
 class Engine:
@@ -13,6 +18,8 @@ class Engine:
         self.requests: Optional[Iterable[Generator]] = None
         # 3. 初始化调度器
         self.scheduler: Optional[Scheduler] = None
+        # 4. 声明爬虫
+        self.spider: Optional[SpiderBase] = None
 
     async def start_spider(self, spider: SpiderBase):
         """
@@ -21,6 +28,7 @@ class Engine:
         :return:
         """
         # 真正的初始化
+        self.spider = spider
         self.scheduler = Scheduler()
         if hasattr(self.scheduler, 'open'):
             self.scheduler.open() # 打开调度器
@@ -30,7 +38,13 @@ class Engine:
         # 处理成迭代器，防止有的子类重写了start_requests，返回值不是生成器了
         self.requests = iter(spider.start_requests())
         # 2. 去执行爬虫
-        await self.crawl()
+        await self._open_spider()
+
+    async def _open_spider(self):
+        # 创建一个异步任务，不影响代码执行
+        crawling = asyncio.create_task(self.crawl())
+        # print('1111') # 这里可以写其他实现
+        await crawling
 
     async def crawl(self):
         """
@@ -40,7 +54,7 @@ class Engine:
         while True:
             # 出队操作，何时出队很关键
             if (request := await self._get_next_request()) is not None:
-                # 如果能拿到请求就去下载请求，拿不到就去入队
+                # 核心：如果能拿到请求就去下载请求，拿不到就去入队
                 await self._crawl(request)
             else:
                 try:
@@ -86,5 +100,39 @@ class Engine:
         """
         return await self.scheduler.next_request()
 
-    async def _crawl(self, request):
-        await self.downloader.download(request)
+    async def _crawl(self, request: Request):
+        # todo 实现真正的并发
+        outputs = await self._fetch(request)
+        # 处理 outputs
+        # 异步迭代
+        if outputs:
+            async for result in outputs:
+                print(result)
+
+    async def _fetch(self, request: Request) -> AsyncIterable[Any]:
+        # 1. 拿到响应
+        # 只有成功的 fetch才有响应
+        async def _success(_response):
+            _callback: Callable = request.callback or self.spider.parse
+            if _callback:
+                # 2. 响应交给回调函数, 回调函数内部交给了爬虫业务系统
+                _outputs = _callback(_response)
+                # !!! 判断这里的响应类型是啥
+                # 判断outputs类别，需要异步迭代，不能简单的 await
+                # await self._transform(outputs) # Error Use
+                # 或者直接返回
+                print('output 类型是', type(_outputs))
+                if _outputs:
+                    if iscoroutine(_outputs):
+                        await _outputs
+                    else:
+                        # 进行转换
+                        return transform(_outputs)
+                return None
+            else:
+                raise RuntimeError(f'no callback！！！')
+
+        _response = await self.downloader.fetch(request)
+        # 2. 返回爬虫业务返回的输出
+        outputs = await _success(_response)
+        return outputs
