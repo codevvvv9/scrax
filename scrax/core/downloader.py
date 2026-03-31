@@ -15,8 +15,8 @@ class Downloader:
         :return:
         """
         # 下载器的核心功能：下载请求
-        response = requests.get(request.url)
-        print(response)
+        # response = requests.get(request.url)
+        # print(response)
         # 假数据模拟
-        # await asyncio.sleep(1)
-        # print('result 了')
+        await asyncio.sleep(1)
+        print('result 了')

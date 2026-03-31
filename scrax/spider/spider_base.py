@@ -4,8 +4,23 @@ from scrax.http import Request
 from abc import ABC
 from scrax.core.decorators import check_request_return
 
+# ======================
+# 🔥 框架核心：自动绑定装饰器的元类
+# ======================
+class SpiderMeta(type):
+    """爬虫元类：自动为所有子类的 start_requests 方法添加校验装饰器"""
+    def __new__(cls, name, bases, attrs):
+        # 自动给 start_requests 方法套上装饰器
+        if 'start_requests' in attrs:
+            attrs['start_requests'] = check_request_return(attrs['start_requests'])
+        return super().__new__(cls, name, bases, attrs)
+
 # 抽象基类，不可以被实例化
-class SpiderBase(ABC):
+# ======================
+# 🔥 基类继承元类 → 全子类自动生效
+# 这样写所有子类的重写方法会检查到错误了，不用再手写装饰器了
+# ======================
+class SpiderBase(metaclass=SpiderMeta):
     """
     爬虫基类
     爬虫业务系统都继承它
@@ -15,7 +30,6 @@ class SpiderBase(ABC):
         if not hasattr(self, 'start_urls'):
             self.start_urls = []
 
-    @check_request_return
     def start_requests(self) -> Iterable[Request]:
         """
         请求方法，所有爬虫应用类的兜底请求方法
