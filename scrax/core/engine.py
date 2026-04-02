@@ -2,11 +2,13 @@ import asyncio
 
 from scrax import Request
 from scrax.core.downloader import Downloader
-from typing import Optional, Generator, Iterable, Any
+from typing import Optional, Generator, Iterator, Any
 from collections.abc import Callable, AsyncIterable
 from inspect import iscoroutine
 from scrax.core.scheduler import Scheduler
+from scrax.exceptions import OutputError
 from scrax.spider.spider_base import SpiderBase
+from scrax.task_manager import TaskManager
 from scrax.utils.tools import transform
 
 
@@ -15,11 +17,15 @@ class Engine:
         # 通过类型注解 各种变量类型声明，延迟初始化
         self.downloader: Optional[Downloader] = None
         # 2. 初始化请求地址
-        self.requests: Optional[Iterable[Generator]] = None
+        self.start_requests: Optional[Iterator[Generator]] = None
         # 3. 初始化调度器
         self.scheduler: Optional[Scheduler] = None
         # 4. 声明爬虫
         self.spider: Optional[SpiderBase] = None
+        # 5. 设置退出循环的标志
+        self.is_running = False
+        # 6. 初始化任务管理器
+        self.task_manager: Optional[TaskManager] = None
 
     async def start_spider(self, spider: SpiderBase):
         """
@@ -28,6 +34,8 @@ class Engine:
         :return:
         """
         # 真正的初始化
+        self.is_running = True
+        self.task_manager = TaskManager(total_concurrency=20)
         self.spider = spider
         self.scheduler = Scheduler()
         if hasattr(self.scheduler, 'open'):
@@ -36,7 +44,7 @@ class Engine:
         self.downloader = Downloader()
         # 1. 获取请求地址
         # 处理成迭代器，防止有的子类重写了start_requests，返回值不是生成器了
-        self.requests = iter(spider.start_requests())
+        self.start_requests = iter(spider.start_requests())
         # 2. 去执行爬虫
         await self._open_spider()
 
@@ -51,18 +59,16 @@ class Engine:
         爬取的主逻辑
         :return:
         """
-        while True:
+        while self.is_running:
             # 出队操作，何时出队很关键
             if (request := await self._get_next_request()) is not None:
-                # 核心：如果能拿到请求就去下载请求，拿不到就去入队
+                # 核心：
+                # 优先消费：如果能拿到请求就先去下载请求，拿不到再挨个提取 request 然后 去入队
                 await self._crawl(request)
             else:
                 try:
                     # 挨个去请求地址,
-                    if self.requests:
-                        request = next(self.requests)
-                    else:
-                        break
+                    start_request = next(self.start_requests) # noqa 后面在解决警告
                     # Bad: 直接处理请求
                     # self.downloader.download(url=request_url)
                     # Good: 通过调度器来处理请求，前去入队
@@ -72,13 +78,14 @@ class Engine:
                     # Bad：遍历完报错，就 break 不是显示退出
                     # break
                     # Good：显式退出，再次引发next(None)报错，下一个 except 处理 break
-                    self.requests = None
-                # except Exception: # 可以不写，在上面的 if else中处理
-                #     break
+                    self.start_requests = None
+                except Exception as e:
+                    if await self.should_exit():
+                        self.is_running = False
                 else:
-                    # 入队操作
+                    # 没有异常时 入队操作
                     # 如果到这里没有异常，就说明这个获取的请求该入队了
-                    await self.enqueue_request(request)
+                    await self.enqueue_request(start_request) # noqa 先消除警告，后面解决
 
 
     async def enqueue_request(self, request):
@@ -101,13 +108,28 @@ class Engine:
         return await self.scheduler.next_request()
 
     async def _crawl(self, request: Request):
-        # todo 实现真正的并发
-        outputs = await self._fetch(request)
-        # 处理 outputs
-        # 异步迭代
-        if outputs:
-            async for result in outputs:
-                print(result)
+        # 实现真正的并发，包装成一个任务，并用信号量控制
+        async def crawl_task():
+            outputs = await self._fetch(request)
+            # 处理 outputs
+            # 异步迭代
+            if outputs:
+                await self._handle_spider_output(outputs)
+        # asyncio.create_task(crawl_task()) # 这里不能用 await，否则就不是并发了，又是阻塞了
+        # 并发控制模块：每添加一次任务，获取一次并发任务次数
+        await self.task_manager.semaphore.acquire()
+        self.task_manager.create_task(crawl_task())
+
+    async def _handle_spider_output(self, outputs: AsyncIterable):
+        async for spider_out in outputs:
+            # 判断类型
+            if isinstance(spider_out, Request):
+                # 如果继续拿到 Request，继续入队
+                # print(spider_out)
+                await self.enqueue_request(spider_out)
+            # todo 处理数据data 为 Item 的情况，假设data类型是 Item
+            else:
+                raise OutputError(f'{type(spider_out)} must return `Request` or `Item`')
 
     async def _fetch(self, request: Request) -> AsyncIterable[Any]:
         # 1. 拿到响应
@@ -121,7 +143,6 @@ class Engine:
                 # 判断outputs类别，需要异步迭代，不能简单的 await
                 # await self._transform(outputs) # Error Use
                 # 或者直接返回
-                print('output 类型是', type(_outputs))
                 if _outputs:
                     if iscoroutine(_outputs):
                         await _outputs
@@ -136,3 +157,9 @@ class Engine:
         # 2. 返回爬虫业务返回的输出
         outputs = await _success(_response)
         return outputs
+
+    async def should_exit(self):
+        if self.scheduler.is_idle() and self.downloader.is_idle() and self.task_manager.all_done():
+            return True
+
+        return False

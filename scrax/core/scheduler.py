@@ -20,7 +20,7 @@ class Scheduler:
         self.spider_queue = SpiderPriorityQueue()
 
 
-    async def next_request(self) -> Optional[Request]:
+    async def  next_request(self) -> Optional[Request]:
         """
         调度下一个请求
         :return: 下一个请求
@@ -48,3 +48,8 @@ class Scheduler:
         """
         await self.spider_queue.put(request)
 
+    def is_idle(self) -> bool:
+        return len(self) == 0
+
+    def __len__(self):
+        return self.spider_queue.qsize()

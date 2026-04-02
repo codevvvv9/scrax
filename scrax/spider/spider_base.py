@@ -37,7 +37,7 @@ class SpiderBase(metaclass=SpiderMeta):
             self.start_urls = []
 
     @abstractmethod
-    def parse(self, response):
+    def  parse(self, response):
         pass
 
     def start_requests(self) -> Iterable[Request]:

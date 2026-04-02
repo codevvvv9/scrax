@@ -1,2 +1,5 @@
-class TransformTypeError(Exception):
+class TransformTypeError(TypeError):
+    pass
+
+class OutputError(Exception):
     pass

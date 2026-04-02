@@ -2,20 +2,18 @@
 对优先队列的二次封装
 """
 import asyncio
-from asyncio import TimeoutError, PriorityQueue
-from typing import (
-    Optional,
-    Coroutine,
-)
+from asyncio import PriorityQueue
+from asyncio.exceptions import TimeoutError
 
 class SpiderPriorityQueue(PriorityQueue):
     def __init__(self, maxsize=0):
         super().__init__(maxsize)
-
+    # 重写 get方法 
     async def get(self):
-        future_item = super().get()
+        get_coro = super().get()
         try:
-            request = await asyncio.wait_for(future_item, timeout=0.1)
+            # 任务超时控制，通过暴露错误让 crawl 函数有时机处理请求
+            request = await asyncio.wait_for(get_coro, timeout=0.1)
         except TimeoutError:
             return None
         return request
